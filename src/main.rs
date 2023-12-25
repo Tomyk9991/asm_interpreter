@@ -1,6 +1,6 @@
 mod command;
 mod assignment;
-mod destination;
+mod address;
 mod register;
 mod jump;
 mod interpreter;
@@ -14,20 +14,22 @@ use crate::program_error::ProgramError;
 
 
 fn run() -> Result<isize, ProgramError> {
-    let mut interpreter = Interpreter::from_str(include_str!("./assembly.asm"))?;
+    let mut interpreter = Interpreter::from_str(include_str!("./array_init.asm"))?;
     interpreter.semantic_check()?;
 
-    let exit_code: isize;
+    let mut exit_code: isize = 0;
 
-    loop {
-        let command = interpreter.source_code[interpreter.program_pointer].clone();
-        command.execute(&mut interpreter.register_states, interpreter.program_pointer)?;
+
+    while let Some(command) = interpreter.source_code.get(interpreter.program_pointer) {
+        let command = command.clone();
+        command.execute(&mut interpreter.memory, interpreter.program_pointer)?;
 
         if let Some(holding_value) = interpreter.mutate(&command)? {
             exit_code = match holding_value {
                 Type::String(_) => 1,
                 Type::Integer(a) => a,
-                Type::Untyped => 1
+                Type::Address(_) => 1,
+                Type::Untyped => 1,
             };
             break;
         }

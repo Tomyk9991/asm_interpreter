@@ -1,24 +1,39 @@
 use std::str::FromStr;
 use crate::assignment::{Assignment, OperationError, Type};
-use crate::destination::Destination;
+use crate::address::{Address};
 use crate::interpreter::{StackFrame};
 use crate::jump::JumpDestination;
 use crate::memory::{Memory, MemoryError};
 use crate::program_error::ParseError;
-use crate::register::Register;
 
 #[derive(Debug, Clone)]
+/// All commands the assembly language supports at the moment
 pub enum Command {
-    Mov(Destination, Assignment),
-    Add(Destination, Assignment, Assignment),
-    Sub(Destination, Assignment, Assignment),
+    /// Copying the assignment to the address, basically
+    ///
+    /// `address = assignment;`
+    Mov(Address, Assignment),
+    /// Adding the first assignment to the second assignment and storing the result in the address
+    ///
+    /// `address = assignment1 + assignment2`
+    Add(Address, Assignment, Assignment),
+    /// Subtracting the second assignment from the first assignment and storing the result in the address
+    ///
+    /// `address = assignment1 - assignment2`
+    Sub(Address, Assignment, Assignment),
+    /// Loading the effective address from the second parameter and storing it in the first address
+    ///
+    /// `address1 = &address2`
+    LoadEffectiveAddress(Address, Address),
     /// call will build a stack frame
-    CallRet(Destination, JumpDestination),
+    CallRet(Address, JumpDestination),
     CallVoid(JumpDestination),
     /// jmp will just jump without storing and restoring rax, rbx, rcx
     Jmp(JumpDestination),
+    /// A Label is a marker you jan jump to or call
     Label(String),
     Return(Assignment),
+    /// Special methods callable and provided by os kernel (printf)
     Syscall(JumpDestination),
     Leave
 }
@@ -28,14 +43,14 @@ impl Command {
     pub fn execute(&self, memory: &mut Memory, program_pointer: usize) -> Result<(), MemoryError> {
         match self {
             Command::Mov(destination, assigment) => {
-                memory.set(destination, self.get_value(memory, assigment)?)?;
+                memory.set(destination, memory.get(assigment)?)?;
             }
             Command::Add(destination, operand1, operand2) => {
-                let result = self.get_value(memory, operand1)? + self.get_value(memory, operand2)?;
+                let result = memory.get(operand1)?.add(&memory.get(operand2)?)?;
                 memory.set(destination, result)?;
             },
             Command::Sub(destination, operand1, operand2) => {
-                let result = self.get_value(memory, operand1)?.sub(&self.get_value(memory, operand2)?)?;
+                let result = memory.get(operand1)?.sub(&memory.get(operand2)?)?;
                 memory.set(destination, result)?;
             }
             Command::CallRet(destination, JumpDestination::Label(_)) => {
@@ -84,30 +99,13 @@ impl Command {
                     }
                 }
             }
+            Command::LoadEffectiveAddress(destination, source) => {
+                memory.set(destination, Type::Address(source.clone()))?;
+            }
             Command::Label(_) | Command::Return(_) | Command::Leave => {}
         }
 
         Ok(())
-    }
-
-    pub fn get_value(&self, memory: &Memory, assignment: &Assignment) -> Result<Type, MemoryError> {
-        match assignment {
-            Assignment::Value(value) => Ok(value.clone()),
-            Assignment::Register(Destination::Register(register)) => {
-                match register {
-                    Register::Rax => Ok(memory.rax.clone()),
-                    Register::Rbx => Ok(memory.rbx.clone()),
-                    Register::Rcx => Ok(memory.rcx.clone())
-                }
-            }
-            Assignment::Register(Destination::StackPointer(index)) => {
-                if *index >= 64 {
-                    return Err(MemoryError::Read(Assignment::Register(Destination::StackPointer(*index))));
-                }
-
-                Ok(memory.stack[*index].clone())
-            }
-        }
     }
 }
 
@@ -134,14 +132,15 @@ impl FromStr for Command {
         }
         else if let [instruction, destination, assignment] = &split[..] {
             match *instruction {
-                "mov" => Ok(Command::Mov(Destination::from_str(destination)?, Assignment::from_str(assignment)?)),
-                "call" => Ok(Command::CallRet(Destination::from_str(destination)?, JumpDestination::from_str(assignment)?)),
+                "lea" => Ok(Command::LoadEffectiveAddress(Address::from_str(destination)?, Address::from_str(assignment)?)),
+                "mov" => Ok(Command::Mov(Address::from_str(destination)?, Assignment::from_str(assignment)?)),
+                "call" => Ok(Command::CallRet(Address::from_str(destination)?, JumpDestination::from_str(assignment)?)),
                 a => Err(ParseError::new(&format!("Unknown instruction: {a}")))
             }
         } else if let [instruction, destination, operand1, operand2] = &split[..] {
             match *instruction {
-                "add" => Ok(Command::Add(Destination::from_str(destination)?, Assignment::from_str(operand1)?, Assignment::from_str(operand2)?)),
-                "sub" => Ok(Command::Sub(Destination::from_str(destination)?, Assignment::from_str(operand1)?, Assignment::from_str(operand2)?)),
+                "add" => Ok(Command::Add(Address::from_str(destination)?, Assignment::from_str(operand1)?, Assignment::from_str(operand2)?)),
+                "sub" => Ok(Command::Sub(Address::from_str(destination)?, Assignment::from_str(operand1)?, Assignment::from_str(operand2)?)),
                 a => Err(ParseError::new(&format!("Unknown instruction: {a}")))
             }
         } else {
@@ -157,6 +156,9 @@ fn merge_quotes(target: &str) -> Vec<&str> {
 
     for char in target.chars() {
         match char {
+            ';' => {
+                break;
+            },
             ' ' if !open_bracket => {
                 let word = &target[word_range.clone()];
                 if !word.is_empty() {
@@ -177,6 +179,9 @@ fn merge_quotes(target: &str) -> Vec<&str> {
         }
     }
 
-    result.push(&target[word_range.clone()]);
+    if !&target[word_range.clone()].is_empty() {
+        result.push(&target[word_range.clone()]);
+    }
+
     return result;
 }

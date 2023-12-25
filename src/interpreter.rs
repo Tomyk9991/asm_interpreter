@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::assignment::Type;
 
 use crate::command::Command;
-use crate::destination::Destination;
+use crate::address::Address;
 use crate::jump::JumpDestination;
 use crate::memory::Memory;
 use crate::program_error::{ParseError, ProgramError};
@@ -14,17 +14,37 @@ use crate::program_error::{ParseError, ProgramError};
 #[derive(Debug)]
 pub struct Interpreter {
     pub program_pointer: usize,
-    pub register_states: Memory,
+    pub memory: Memory,
     pub source_code: Vec<Command>,
+}
+
+fn pretty_print_stack(min: usize, stack: &[Type]) -> Vec<String> {
+    let mut printing_stack = vec![];
+
+    pretty_print_stack_helper(min, stack, &mut printing_stack);
+    return printing_stack;
+}
+
+fn pretty_print_stack_helper(min: usize, stack: &[Type], printing_stack: &mut Vec<String>) {
+    if let Some(typed_position) = stack.iter().enumerate().position(|(index, a)| index >= min && *a != Type::Untyped) {
+        if typed_position != min {
+            printing_stack.push(format!("{min}..{}: {}", typed_position - 1,Type::Untyped));
+        }
+
+        printing_stack.push(format!("{typed_position}: {}", stack[typed_position]));
+        pretty_print_stack_helper(typed_position + 1, stack, printing_stack);
+    } else {
+        printing_stack.push(format!("{min}..{end}: {}", Type::Untyped, end = stack.len()));
+    }
 }
 
 impl Display for Interpreter {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Interpreter")
-            .field("rax", &self.register_states.rax)
-            .field("rbx", &self.register_states.rbx)
-            .field("rcx", &self.register_states.rcx)
-            .field("stack", &self.register_states.stack.iter().filter(|a| **a != Type::Untyped).collect::<Vec<_>>())
+            .field("rax", &self.memory.rax)
+            .field("rbx", &self.memory.rbx)
+            .field("rcx", &self.memory.rcx)
+            .field("stack", &pretty_print_stack(0, &self.memory.stack))
             .finish()
     }
 }
@@ -35,7 +55,7 @@ pub type RegisterMemory = (Type, Type, Type);
 pub struct StackFrame {
     pub return_address: usize,
     pub entered_with_jmp: bool,
-    pub destination: Option<Destination>,
+    pub destination: Option<Address>,
     pub register_state: RegisterMemory,
 }
 
@@ -45,13 +65,16 @@ impl FromStr for Interpreter {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut commands = vec![];
+
         for line in s.lines() {
             if line.is_empty() { continue; }
+            if line.trim().starts_with(';') { continue; }
+
             commands.push(Command::from_str(line)?);
         }
 
         Ok(Self {
-            register_states: Memory {
+            memory: Memory {
                 rax: Type::Untyped,
                 rbx: Type::Untyped,
                 rcx: Type::Untyped,
@@ -67,14 +90,14 @@ impl FromStr for Interpreter {
 #[derive(Debug, Error)]
 pub enum SemanticError {
     ReturnMissing { label: String },
-    LeaveMissing { label: String }
+    LeaveMissing { label: String },
 }
 
 impl Display for SemanticError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", match self {
             SemanticError::ReturnMissing { label } => format!("The label '{label}' is used with an expected return value, but no `ret ASSIGNMENT` is provided for all code paths"),
-            SemanticError::LeaveMissing { label } => format!("The label '{label}' is used with a leave command, but no leave command is provided in all code paths")
+            SemanticError::LeaveMissing { label } => format!("The label '{label}' is used with a leave command, but no leave command is provided in all code paths"),
         })
     }
 }
@@ -92,11 +115,10 @@ impl Interpreter {
                 },
                 Command::Jmp(jump_destination) => {
                     jump_destination.ends_with(&self, |command| matches!(command, Command::Return(_) | Command::Leave), |target_label| SemanticError::LeaveMissing { label: target_label.to_string() })?;
-                }
+                },
                 _ => {}
             }
         }
-
 
         Ok(())
     }
@@ -116,35 +138,37 @@ impl Interpreter {
                 }
             }
             Command::Return(assignment) => {
-                let value = command.get_value(&self.register_states, assignment)?;
-                if self.register_states.stack_frame.is_empty() {
+                let value = self.memory.get(assignment)?;
+                if self.memory.stack_frame.is_empty() {
                     return Ok(Some(value));
-                } else if let Some(stack_frame) = self.register_states.stack_frame.pop_front() {
+                } else if let Some(stack_frame) = self.memory.stack_frame.pop_front() {
                     if let Some(destination) = stack_frame.destination {
-                        self.register_states.set(&destination, value)?;
+                        self.memory.set(&destination, value)?;
                     }
 
                     if !stack_frame.entered_with_jmp {
-                        (self.register_states.rax, self.register_states.rbx, self.register_states.rcx) = stack_frame.register_state;
+                        (self.memory.rax, self.memory.rbx, self.memory.rcx) = stack_frame.register_state;
                     }
 
                     self.program_pointer = stack_frame.return_address;
                 }
             }
             Command::Leave => {
-                if self.register_states.stack_frame.is_empty() {
-                    return Ok(None)
-                } else if let Some(stack_frame) = self.register_states.stack_frame.pop_front() {
+                if self.memory.stack_frame.is_empty() {
+                    return Ok(Some(Type::Integer(0)))
+                } else if let Some(stack_frame) = self.memory.stack_frame.pop_front() {
                     assert_eq!(stack_frame.destination, None);
 
                     if !stack_frame.entered_with_jmp {
-                        (self.register_states.rax, self.register_states.rbx, self.register_states.rcx) = stack_frame.register_state;
+                        (self.memory.rax, self.memory.rbx, self.memory.rcx) = stack_frame.register_state;
                     }
 
                     self.program_pointer = stack_frame.return_address;
                 }
             }
-            Command::Mov(_, _) | Command::Add(_, _, _) | Command::Sub(_, _, _) | Command::Label(_) | Command::Syscall(_) => {}
+            Command::LoadEffectiveAddress(_, _) | Command::Mov(_, _) |
+            Command::Add(_, _, _)               | Command::Sub(_, _, _) |
+            Command::Label(_)                   | Command::Syscall(_) => {}
         }
 
         Ok(None)
