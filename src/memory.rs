@@ -11,7 +11,7 @@ pub struct Memory {
     pub rax: Type,
     pub rbx: Type,
     pub rcx: Type,
-    pub stack_frame: VecDeque<StackFrame>,
+    pub stack_frame: Vec<StackFrame>,
     pub stack: Vec<Type>
 }
 

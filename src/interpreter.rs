@@ -78,7 +78,7 @@ impl FromStr for Interpreter {
                 rax: Type::Untyped,
                 rbx: Type::Untyped,
                 rcx: Type::Untyped,
-                stack_frame: VecDeque::new(),
+                stack_frame: Vec::new(),
                 stack: vec![Type::Untyped; 64],
             },
             program_pointer: 0,
@@ -123,31 +123,75 @@ impl Interpreter {
         Ok(())
     }
 
+    fn search_label_jump(&mut self, target_label: &str) -> Result<(), ProgramError> {
+        let potential_index = self.source_code.iter().position(|a|
+            matches!(a, Command::Label(source_label) if *source_label == *target_label)
+        );
+
+        if let Some(index) = potential_index {
+            self.program_pointer = index;
+            return Ok(())
+        } else {
+            return Err(ProgramError::LabelNotFound(target_label.to_string()));
+        }
+    }
+
     /// Resulting in new return_value, if holding
     pub fn mutate(&mut self, command: &Command) -> Result<Option<Type>, ProgramError> {
         match command {
             Command::CallVoid(JumpDestination::Label(target_label)) | Command::CallRet(_, JumpDestination::Label(target_label)) | Command::Jmp(JumpDestination::Label(target_label)) => {
-                let potential_index = self.source_code.iter().position(|a|
-                    matches!(a, Command::Label(source_label) if *source_label == *target_label)
-                );
+                self.search_label_jump(target_label)?;
+            },
+            Command::JumpLess(assignment, JumpDestination::Label(target_label)) => {
+                if let Type::Integer(value) = self.memory.get(assignment)? {
+                    if value == -1 {
+                        self.search_label_jump(target_label)?
+                    } else {
+                        self.memory.stack_frame.pop();
+                    }
 
-                if let Some(index) = potential_index {
-                    self.program_pointer = index;
-                } else {
-                    return Err(ProgramError::LabelNotFound(target_label.to_string()));
+                }
+            },
+            Command::JumpGreater(assignment, JumpDestination::Label(target_label)) => {
+                if let Type::Integer(value) = self.memory.get(assignment)? {
+                    if value == 1 {
+                        self.search_label_jump(target_label)?
+                    } else {
+                        self.memory.stack_frame.pop();
+                    }
+
                 }
             }
+            Command::JumpNotEqual(assignment, JumpDestination::Label(target_label)) => {
+                if let Type::Integer(value) = self.memory.get(assignment)? {
+                    if value != 0 {
+                        self.search_label_jump(target_label)?
+                    } else {
+                        self.memory.stack_frame.pop();
+                    }
+                }
+            }
+            Command::JumpEqual(assignment, JumpDestination::Label(target_label)) => {
+                if let Type::Integer(value) = self.memory.get(assignment)? {
+                    if value == 0 {
+                        self.search_label_jump(target_label)?
+                    } else {
+                        self.memory.stack_frame.pop();
+                    }
+                }
+            }
+
             Command::Return(assignment) => {
                 let value = self.memory.get(assignment)?;
                 if self.memory.stack_frame.is_empty() {
                     return Ok(Some(value));
-                } else if let Some(stack_frame) = self.memory.stack_frame.pop_front() {
-                    if let Some(destination) = stack_frame.destination {
-                        self.memory.set(&destination, value)?;
-                    }
-
+                } else if let Some(stack_frame) = self.memory.stack_frame.pop() {
                     if !stack_frame.entered_with_jmp {
                         (self.memory.rax, self.memory.rbx, self.memory.rcx) = stack_frame.register_state;
+                    }
+
+                    if let Some(destination) = stack_frame.destination {
+                        self.memory.set(&destination, value)?;
                     }
 
                     self.program_pointer = stack_frame.return_address;
@@ -156,7 +200,7 @@ impl Interpreter {
             Command::Leave => {
                 if self.memory.stack_frame.is_empty() {
                     return Ok(Some(Type::Integer(0)))
-                } else if let Some(stack_frame) = self.memory.stack_frame.pop_front() {
+                } else if let Some(stack_frame) = self.memory.stack_frame.pop() {
                     assert_eq!(stack_frame.destination, None);
 
                     if !stack_frame.entered_with_jmp {
@@ -165,7 +209,8 @@ impl Interpreter {
 
                     self.program_pointer = stack_frame.return_address;
                 }
-            }
+            },
+            Command::Compare(_, _, _) |
             Command::LoadEffectiveAddress(_, _) | Command::Mov(_, _) |
             Command::Add(_, _, _)               | Command::Sub(_, _, _) |
             Command::Label(_)                   | Command::Syscall(_) => {}

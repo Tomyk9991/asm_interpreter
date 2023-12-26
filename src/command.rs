@@ -35,7 +35,19 @@ pub enum Command {
     Return(Assignment),
     /// Special methods callable and provided by os kernel (printf)
     Syscall(JumpDestination),
-    Leave
+    Leave,
+    /// Jump, if Assignment == -1
+    JumpLess(Assignment, JumpDestination),
+    /// Jump, if Assignment == 1
+    JumpGreater(Assignment, JumpDestination),
+    /// Jump, if Assignment != 0
+    JumpNotEqual(Assignment, JumpDestination),
+    /// Jump, if Assignment == 0
+    JumpEqual(Assignment, JumpDestination),
+    /// Compares two Assignments and store the result in the Address
+    ///
+    /// `address = Sign(a2 - a1)`
+    Compare(Address, Assignment, Assignment)
 }
 
 impl Command {
@@ -61,7 +73,7 @@ impl Command {
                     register_state: memory.register_state(),
                 };
 
-                memory.stack_frame.push_back(stack_frame);
+                memory.stack_frame.push(stack_frame);
             }
             Command::CallVoid(JumpDestination::Label(_)) => {
                 let stack_frame = StackFrame {
@@ -71,8 +83,10 @@ impl Command {
                     register_state: memory.register_state(),
                 };
 
-                memory.stack_frame.push_back(stack_frame);
+                memory.stack_frame.push(stack_frame);
             },
+            Command::JumpLess(_, _) | Command::JumpGreater(_, _) |
+            Command::JumpNotEqual(_, _) | Command::JumpEqual(_, _) |
             Command::Jmp(JumpDestination::Label(_)) => {
                 let stack_frame = StackFrame {
                     return_address: program_pointer,
@@ -81,7 +95,7 @@ impl Command {
                     register_state: memory.register_state(),
                 };
 
-                memory.stack_frame.push_back(stack_frame);
+                memory.stack_frame.push(stack_frame);
             }
             Command::Syscall(JumpDestination::Label(label)) => {
                 if *label == "printf" {
@@ -101,7 +115,13 @@ impl Command {
             }
             Command::LoadEffectiveAddress(destination, source) => {
                 memory.set(destination, Type::Address(source.clone()))?;
-            }
+            },
+            Command::Compare(destination, value1, value2) => {
+                memory.set(destination, memory.get(value1)?.cmp(&memory.get(value2)?)?)?
+            },
+
+
+
             Command::Label(_) | Command::Return(_) | Command::Leave => {}
         }
 
@@ -132,6 +152,11 @@ impl FromStr for Command {
         }
         else if let [instruction, destination, assignment] = &split[..] {
             match *instruction {
+                "je" => Ok(Command::JumpEqual(Assignment::from_str(destination)?, JumpDestination::from_str(assignment)?)),
+                "jne" => Ok(Command::JumpNotEqual(Assignment::from_str(destination)?, JumpDestination::from_str(assignment)?)),
+                "jg" => Ok(Command::JumpGreater(Assignment::from_str(destination)?, JumpDestination::from_str(assignment)?)),
+                "jl" => Ok(Command::JumpLess(Assignment::from_str(destination)?, JumpDestination::from_str(assignment)?)),
+
                 "lea" => Ok(Command::LoadEffectiveAddress(Address::from_str(destination)?, Address::from_str(assignment)?)),
                 "mov" => Ok(Command::Mov(Address::from_str(destination)?, Assignment::from_str(assignment)?)),
                 "call" => Ok(Command::CallRet(Address::from_str(destination)?, JumpDestination::from_str(assignment)?)),
@@ -139,6 +164,7 @@ impl FromStr for Command {
             }
         } else if let [instruction, destination, operand1, operand2] = &split[..] {
             match *instruction {
+                "cmp" => Ok(Command::Compare(Address::from_str(destination)?, Assignment::from_str(operand1)?, Assignment::from_str(operand2)?)),
                 "add" => Ok(Command::Add(Address::from_str(destination)?, Assignment::from_str(operand1)?, Assignment::from_str(operand2)?)),
                 "sub" => Ok(Command::Sub(Address::from_str(destination)?, Assignment::from_str(operand1)?, Assignment::from_str(operand2)?)),
                 a => Err(ParseError::new(&format!("Unknown instruction: {a}")))

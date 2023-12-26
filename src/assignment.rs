@@ -1,7 +1,8 @@
+use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
 use thiserror::Error;
-use crate::address::{Address, Destination, TryAdd, TryAddError};
+use crate::address::{Address, Destination, TryAdd, TryOperateTypes};
 use crate::program_error::ParseError;
 
 #[derive(Debug, Clone)]
@@ -23,7 +24,8 @@ impl From<Destination> for Assignment {
 #[derive(Debug, Error, Clone)]
 pub enum OperationError {
     Subtraction(Type, Type),
-    TryAdd(#[from] TryAddError),
+    TryAdd(#[from] TryOperateTypes),
+    TryCmp(TryOperateTypes),
     WrongType { expected: String, actual: String }
 }
 
@@ -34,6 +36,7 @@ impl Display for OperationError {
                 format!("Attempted subtracting two incompatible types: [{t1}] - [{t2}]")
             }
             OperationError::TryAdd(a) => format!("Attempting adding two incompatible types: {a}"),
+            OperationError::TryCmp(a) => format!("Attempting comparing two incompatible types: {a}"),
             OperationError::WrongType { expected, actual } => {
                 format!("Type {expected} is expected but the actual value was {actual}")
             }
@@ -84,6 +87,23 @@ impl Type {
         Err(OperationError::Subtraction(self.clone(), other.clone()))
     }
 
+    pub fn cmp(&self, other: &Type) -> Result<Type, OperationError> {
+        match (self, other) {
+            (Type::Integer(o1), Type::Integer(o2)) => Ok(Type::Integer(usize_from(o1.cmp(o2)))),
+
+            (Type::Address(Address::StackPointer(address)), Type::Integer(i))
+                => Ok(Type::Integer(usize_from((*address as isize).cmp(i)))),
+
+            (Type::Integer(i), Type::Address(Address::StackPointer(address)))
+            => Ok(Type::Integer(usize_from(i.cmp(&(*address as isize))))),
+
+            (Type::Address(Address::StackPointer(o1)), Type::Address(Address::StackPointer(o2)))
+                => Ok(Type::Integer(usize_from(o1.cmp(o2)))),
+
+            (a1, a2) => Err(OperationError::TryCmp(TryOperateTypes::IncompatibleTypes((*a1).clone().to_string(), (*a2).clone().to_string())))
+        }
+    }
+
     pub fn add(&self, other: &Type) -> Result<Type, OperationError> {
         match (self, other) {
             (Type::Integer(o1), Type::Integer(o2)) => Ok(Type::Integer(o1 + o2)),
@@ -106,6 +126,14 @@ impl Type {
             Type::Address(a) => format!("{a}"),
             Type::Untyped => "".to_string(),
         }
+    }
+}
+
+fn usize_from(o: Ordering) -> isize {
+    match o {
+        Ordering::Less => -1,
+        Ordering::Equal => 0,
+        Ordering::Greater => 1
     }
 }
 

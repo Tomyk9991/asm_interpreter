@@ -29,38 +29,38 @@ pub trait TryAdd<T> {
 }
 
 #[derive(Debug, Error, Clone)]
-pub enum TryAddError {
+pub enum TryOperateTypes {
     IncompatibleTypes(String, String),
 }
 
-impl Display for TryAddError {
+impl Display for TryOperateTypes {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", match self {
-            TryAddError::IncompatibleTypes(a, b) => format!("({a}, {b})")
+            TryOperateTypes::IncompatibleTypes(a, b) => format!("({a}, {b})")
         })
     }
 }
 
 impl TryAdd<Address> for Address {
     type Output = Address;
-    type Error = TryAddError;
+    type Error = TryOperateTypes;
 
     fn try_add(&self, rhs: &Address) -> Result<Self::Output, Self::Error>  {
         match (&self, &rhs) {
             (Address::StackPointer(i), Address::StackPointer(j)) => Ok(Address::StackPointer(*i + *j)),
-            (a1, a2) => Err(TryAddError::IncompatibleTypes((*a1).clone().to_string(), (*a2).clone().to_string()))
+            (a1, a2) => Err(TryOperateTypes::IncompatibleTypes((*a1).clone().to_string(), (*a2).clone().to_string()))
         }
     }
 }
 
 impl TryAdd<isize> for Address {
     type Output = Address;
-    type Error = TryAddError;
+    type Error = TryOperateTypes;
 
     fn try_add(&self, rhs: &isize) -> Result<Self::Output, Self::Error>  {
         match (&self, rhs) {
             (Address::StackPointer(i), j) => Ok(Address::StackPointer((((*i) as isize) + *j) as usize)),
-            (a1, a2) => Err(TryAddError::IncompatibleTypes((*a1).to_string(), (*a2).to_string()))
+            (a1, a2) => Err(TryOperateTypes::IncompatibleTypes((*a1).to_string(), (*a2).to_string()))
         }
     }
 }

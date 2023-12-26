@@ -14,7 +14,7 @@ use crate::program_error::ProgramError;
 
 
 fn run() -> Result<isize, ProgramError> {
-    let mut interpreter = Interpreter::from_str(include_str!("./array_init.asm"))?;
+    let mut interpreter = Interpreter::from_str(include_str!("./join_strings.asm"))?;
     interpreter.semantic_check()?;
 
     let mut exit_code: isize = 0;
