@@ -121,9 +121,9 @@ impl Type {
 
     pub fn to_string_raw(&self) -> String {
         match self {
-            Type::String(a) => format!("{a}"),
-            Type::Integer(a) => format!("{a}"),
-            Type::Address(a) => format!("{a}"),
+            Type::String(a) => a.to_string(),
+            Type::Integer(a) => a.to_string(),
+            Type::Address(a) => a.to_string(),
             Type::Untyped => "".to_string(),
         }
     }

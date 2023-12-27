@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::fmt::{Display, Formatter};
 use thiserror::Error;
 use crate::assignment::{Assignment, OperationError, Type};
@@ -71,14 +70,14 @@ impl Memory {
                     Ok(*integer_value as usize)
                 }
                 Type::Address(a) => {
-                    return match a {
+                    match a {
                         Address::StackPointer(i) => Ok(*i),
                         Address::Register(_) => Err(MemoryError::SegmentationFault("Cannot read a registers position".to_string())),
                         Address::Reference(_) => Err(MemoryError::SegmentationFault("Only single pointers supported".to_string()))
-                    };
+                    }
                 }
-                Type::String(t) => return Err(MemoryError::Read(Assignment::Value(Type::String(t.to_string())))),
-                Type::Untyped => return Err(MemoryError::Read(Assignment::Value(Type::Untyped)))
+                Type::String(t) => Err(MemoryError::Read(Assignment::Value(Type::String(t.to_string())))),
+                Type::Untyped => Err(MemoryError::Read(Assignment::Value(Type::Untyped)))
             }
         }
 

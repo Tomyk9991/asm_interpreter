@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
@@ -22,7 +21,7 @@ fn pretty_print_stack(min: usize, stack: &[Type]) -> Vec<String> {
     let mut printing_stack = vec![];
 
     pretty_print_stack_helper(min, stack, &mut printing_stack);
-    return printing_stack;
+    printing_stack
 }
 
 fn pretty_print_stack_helper(min: usize, stack: &[Type], printing_stack: &mut Vec<String>) {
@@ -108,13 +107,13 @@ impl Interpreter {
             // if call is ran with a label, this label must have a ret command in all code paths
             match command {
                 Command::CallRet(_, jump_destination) => {
-                    jump_destination.ends_with(&self, |command| matches!(command, Command::Return(_)), |target_label| SemanticError::ReturnMissing { label: target_label.to_string() })?;
+                    jump_destination.ends_with(self, |command| matches!(command, Command::Return(_)), |target_label| SemanticError::ReturnMissing { label: target_label.to_string() })?;
                 },
                 Command::CallVoid(jump_destination) => {
-                    jump_destination.ends_with(&self, |command| matches!(command, Command::Return(_) | Command::Leave), |target_label| SemanticError::LeaveMissing { label: target_label.to_string() })?;
+                    jump_destination.ends_with(self, |command| matches!(command, Command::Return(_) | Command::Leave), |target_label| SemanticError::LeaveMissing { label: target_label.to_string() })?;
                 },
                 Command::Jmp(jump_destination) => {
-                    jump_destination.ends_with(&self, |command| matches!(command, Command::Return(_) | Command::Leave), |target_label| SemanticError::LeaveMissing { label: target_label.to_string() })?;
+                    jump_destination.ends_with(self, |command| matches!(command, Command::Return(_) | Command::Leave), |target_label| SemanticError::LeaveMissing { label: target_label.to_string() })?;
                 },
                 _ => {}
             }
@@ -130,9 +129,9 @@ impl Interpreter {
 
         if let Some(index) = potential_index {
             self.program_pointer = index;
-            return Ok(())
+            Ok(())
         } else {
-            return Err(ProgramError::LabelNotFound(target_label.to_string()));
+            Err(ProgramError::LabelNotFound(target_label.to_string()))
         }
     }
 

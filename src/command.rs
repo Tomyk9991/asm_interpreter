@@ -209,5 +209,5 @@ fn merge_quotes(target: &str) -> Vec<&str> {
         result.push(&target[word_range.clone()]);
     }
 
-    return result;
+    result
 }
